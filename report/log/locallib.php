@@ -102,8 +102,13 @@ function report_log_print_mnet_selector_form($hostid, $course, $selecteduser=0, 
 
         /// Setup for group handling.
         if ($course->groupmode == SEPARATEGROUPS and !has_capability('moodle/site:accessallgroups', $context)) {
-            $selectedgroup = -1;
-            $showgroups = false;
+            if (count(groups_get_all_groups($course->id, $USER->id)) > 1) {
+                $showlimitgroup = true;
+                $showgroups = true;
+            } else {
+                $selectedgroup = -1;
+                $showgroups = false;
+            }
         } else if ($course->groupmode) {
             $showgroups = true;
         } else {
@@ -139,8 +144,26 @@ function report_log_print_mnet_selector_form($hostid, $course, $selecteduser=0, 
 
     // If looking at a different host, we're interested in all our site users
     if ($hostid == $CFG->mnet_localhost_id && $course->id != SITEID) {
-        $courseusers = get_enrolled_users($context, '', $selectedgroup, 'u.id, ' . get_all_user_name_fields(true, 'u'),
+        if ($showlimitgroup && $selectedgroup == 0) {
+            $count = 0;
+            $usergroups = groups_get_all_groups($course->id, $USER->id);
+            foreach ($usergroups as $usergroup) {
+                $count++;
+                if ($count == 1) {
+                    $courseusers = get_enrolled_users($context, '', $usergroup->id,
+                        'u.id, ' . get_all_user_name_fields(true, 'u'), null, $limitfrom, $limitnum);
+                } else {
+                    $tempusers = get_enrolled_users($context, '', $usergroup->id,
+                        'u.id, ' . get_all_user_name_fields(true, 'u'), null, $limitfrom, $limitnum);
+                    foreach ($tempusers as $tempuser) {
+                        array_push($courseusers, $tempuser);
+                    }
+                }
+            }
+        } else {
+            $courseusers = get_enrolled_users($context, '', $selectedgroup, 'u.id, ' . get_all_user_name_fields(true, 'u'),
                 null, $limitfrom, $limitnum);
+        }
     } else {
         // this may be a lot of users :-(
         $courseusers = $DB->get_records('user', array('deleted'=>0), 'lastaccess DESC', 'id, ' . get_all_user_name_fields(true),
@@ -331,14 +354,22 @@ function report_log_print_mnet_selector_form($hostid, $course, $selecteduser=0, 
     }
 
     if ($showgroups) {
-        if ($cgroups = groups_get_all_groups($course->id)) {
+        if ($showlimitgroup) {
+            $cgroups = groups_get_all_groups($course->id, $USER->id);
             foreach ($cgroups as $cgroup) {
                 $groups[$cgroup->id] = $cgroup->name;
             }
         }
         else {
-            $groups = array();
+            if ($cgroups = groups_get_all_groups($course->id)) {
+                foreach ($cgroups as $cgroup) {
+                    $groups[$cgroup->id] = $cgroup->name;
+                }
+            } else {
+                $groups = array();
+            }
         }
+
         echo html_writer::label(get_string('selectagroup'), 'menugroup', false, array('class' => 'accesshide'));
         echo html_writer::select($groups, "group", $selectedgroup, get_string("allgroups"));
     }
@@ -418,11 +449,17 @@ function report_log_print_selector_form($course, $selecteduser=0, $selecteddate=
 
     $sitecontext = context_system::instance();
     $context = context_course::instance($course->id);
+    $showlimitgroup = false;
 
     /// Setup for group handling.
     if ($course->groupmode == SEPARATEGROUPS and !has_capability('moodle/site:accessallgroups', $context)) {
-        $selectedgroup = -1;
-        $showgroups = false;
+        if (count(groups_get_all_groups($course->id, $USER->id)) > 1) {
+            $showlimitgroup = true;
+            $showgroups = true;
+        } else {
+            $selectedgroup = -1;
+            $showgroups = false;
+        }
     } else if ($course->groupmode) {
         $showgroups = true;
     } else {
@@ -452,8 +489,26 @@ function report_log_print_selector_form($course, $selecteduser=0, $selecteddate=
     $limitfrom = empty($showusers) ? 0 : '';
     $limitnum  = empty($showusers) ? COURSE_MAX_USERS_PER_DROPDOWN + 1 : '';
 
-    $courseusers = get_enrolled_users($context, '', $selectedgroup, 'u.id, ' . get_all_user_name_fields(true, 'u'),
+    if ($showlimitgroup) {
+        $count = 0;
+        $usergroups = groups_get_all_groups($course->id, $USER->id);
+        foreach ($usergroups as $usergroup) {
+            $count++;
+            if ($count == 1) {
+                $courseusers = get_enrolled_users($context, '', $usergroup->id, 'u.id, ' . get_all_user_name_fields(true, 'u'),
+                    null, $limitfrom, $limitnum);
+            } else {
+                $tempusers = get_enrolled_users($context, '', $usergroup->id, 'u.id, ' . get_all_user_name_fields(true, 'u'),
+                    null, $limitfrom, $limitnum);
+                foreach ($tempusers as $tempuser) {
+                    array_push($courseusers, $tempuser);
+                }
+            }
+        }
+    } else {
+        $courseusers = get_enrolled_users($context, '', $selectedgroup, 'u.id, ' . get_all_user_name_fields(true, 'u'),
             null, $limitfrom, $limitnum);
+    }
 
     if (count($courseusers) < COURSE_MAX_USERS_PER_DROPDOWN && !$showusers) {
         $showusers = 1;
@@ -591,13 +646,20 @@ function report_log_print_selector_form($course, $selecteduser=0, $selecteddate=
     }
 
     if ($showgroups) {
-        if ($cgroups = groups_get_all_groups($course->id)) {
+        if ($showlimitgroup) {
+            $cgroups = groups_get_all_groups($course->id, $USER->id);
             foreach ($cgroups as $cgroup) {
                 $groups[$cgroup->id] = $cgroup->name;
             }
         }
         else {
-            $groups = array();
+            if ($cgroups = groups_get_all_groups($course->id)) {
+                foreach ($cgroups as $cgroup) {
+                    $groups[$cgroup->id] = $cgroup->name;
+                }
+            } else {
+                $groups = array();
+            }
         }
         echo html_writer::label(get_string('selectagroup'), 'menugroup', false, array('class' => 'accesshide'));
         echo html_writer::select($groups, "group", $selectedgroup, get_string("allgroups"));

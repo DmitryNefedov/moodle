@@ -241,23 +241,8 @@ function build_logs_array($course, $user=0, $date=0, $order="l.time ASC", $limit
 
     /// Setup for group handling.
 
-    /// If the group mode is separate, and this user does not have editing privileges,
-    /// then only the user's group can be viewed.
-    if ($course->groupmode == SEPARATEGROUPS and !has_capability('moodle/course:managegroups', context_course::instance($course->id))) {
-        if (isset($SESSION->currentgroup[$course->id])) {
-            $groupid =  $SESSION->currentgroup[$course->id];
-        } else {
-            $groupid = groups_get_all_groups($course->id, $USER->id);
-            if (is_array($groupid)) {
-                $groupid = array_shift(array_keys($groupid));
-                $SESSION->currentgroup[$course->id] = $groupid;
-            } else {
-                $groupid = 0;
-            }
-        }
-    }
     /// If this course doesn't have groups, no groupid can be specified.
-    else if (!$course->groupmode) {
+    if (!$course->groupmode) {
         $groupid = 0;
     }
 
@@ -318,6 +303,38 @@ function build_logs_array($course, $user=0, $date=0, $order="l.time ASC", $limit
 
     $totalcount = 0;  // Initialise
     $result = array();
+
+    // If  the group mode is separate and this user does not have privileges, then show only his group(s).
+    $context = context_course::instance($course->id);
+    if ($course->groupmode == SEPARATEGROUPS and !has_capability('moodle/site:accessallgroups', $context)) {
+        $count = 0;
+        global $USER;
+
+        // Get all users from USER's groups.
+        $usergroups = groups_get_all_groups($course->id, $USER->id);
+        foreach ($usergroups as $usergroup) {
+            $count++;
+            if ($count == 1) {
+                $courseusers = get_enrolled_users($context, '', $usergroup->id, 'u.id',
+                    null, '', '');
+            } else {
+                $tempusers = get_enrolled_users($context, '', $usergroup->id, 'u.id',
+                    null, '', '');
+                foreach ($tempusers as $tempuser) {
+                    array_push($courseusers, $tempuser);
+                }
+            }
+        }
+
+        // Make them unique.
+        foreach ($courseusers as $courseuser) {
+            $allowedusers[$courseuser->id] = $courseuser->id;
+        }
+
+        // Add selection option.
+        $selector .= " AND l.userid IN (" . implode(',', $allowedusers) . ")";
+    }
+
     $result['logs'] = get_logs($selector, $params, $order, $limitfrom, $limitnum, $totalcount);
     $result['totalcount'] = $totalcount;
     return $result;
