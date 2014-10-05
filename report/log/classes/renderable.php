@@ -239,33 +239,16 @@ class report_log_renderable implements renderable {
             return 0;
         }
 
-        $context = context_course::instance($this->course->id);
-
         $selectedgroup = 0;
         // Setup for group handling.
         $groupmode = groups_get_course_groupmode($this->course);
-        if ($groupmode == SEPARATEGROUPS and !has_capability('moodle/site:accessallgroups', $context)) {
-            $selectedgroup = -1;
-        } else if ($groupmode) {
+
+        if ($groupmode) {
             $selectedgroup = $this->groupid;
         } else {
             $selectedgroup = 0;
         }
 
-        if ($selectedgroup === -1) {
-            if (isset($SESSION->currentgroup[$this->course->id])) {
-                $selectedgroup = $SESSION->currentgroup[$this->course->id];
-            } else {
-                $selectedgroup = groups_get_all_groups($this->course->id, $USER->id);
-                if (is_array($selectedgroup)) {
-                    $groupids = array_keys($selectedgroup);
-                    $selectedgroup = array_shift($groupids);
-                    $SESSION->currentgroup[$this->course->id] = $selectedgroup;
-                } else {
-                    $selectedgroup = 0;
-                }
-            }
-        }
         return $selectedgroup;
     }
 
@@ -351,6 +334,7 @@ class report_log_renderable implements renderable {
             return array();
         }
 
+        global $USER;
         $context = context_course::instance($this->course->id);
         $groups = array();
         $groupmode = groups_get_course_groupmode($this->course);
@@ -358,6 +342,14 @@ class report_log_renderable implements renderable {
                 ($groupmode == SEPARATEGROUPS and has_capability('moodle/site:accessallgroups', $context))) {
             // Get all groups.
             if ($cgroups = groups_get_all_groups($this->course->id)) {
+                foreach ($cgroups as $cgroup) {
+                    $groups[$cgroup->id] = $cgroup->name;
+                }
+            }
+        } else if ($groupmode == SEPARATEGROUPS and !has_capability('moodle/site:accessallgroups', $context) and
+                count(groups_get_all_groups($this->course->id, $USER->id)) > 1) {
+            // If groupmode is separate and USER has more then 1 group.
+            if ($cgroups = groups_get_all_groups($this->course->id, $USER->id)) {
                 foreach ($cgroups as $cgroup) {
                     $groups[$cgroup->id] = $cgroup->name;
                 }
@@ -381,8 +373,33 @@ class report_log_renderable implements renderable {
         $context = context_course::instance($courseid);
         $limitfrom = empty($this->showusers) ? 0 : '';
         $limitnum  = empty($this->showusers) ? COURSE_MAX_USERS_PER_DROPDOWN + 1 : '';
-        $courseusers = get_enrolled_users($context, '', $this->groupid, 'u.id, ' . get_all_user_name_fields(true, 'u'),
+
+        if ($this->course->groupmode == SEPARATEGROUPS and !has_capability('moodle/site:accessallgroups', $context)) {
+            if ($this->groupid == 0) {
+                global $USER;
+                $count = 0;
+                $usergroups = groups_get_all_groups($this->course->id, $USER->id);
+                foreach ($usergroups as $usergroup) {
+                    $count++;
+                    if ($count == 1) {
+                        $courseusers = get_enrolled_users($context, '', $usergroup->id,
+                            'u.id, ' . get_all_user_name_fields(true, 'u'), null, $limitfrom, $limitnum);
+                    } else {
+                        $tempusers = get_enrolled_users($context, '', $usergroup->id,
+                            'u.id, ' . get_all_user_name_fields(true, 'u'), null, $limitfrom, $limitnum);
+                        foreach ($tempusers as $tempuser) {
+                            array_push($courseusers, $tempuser);
+                        }
+                    }
+                }
+            } else {
+                $courseusers = get_enrolled_users($context, '', $this->groupid, 'u.id, ' . get_all_user_name_fields(true, 'u'),
+                    null, $limitfrom, $limitnum);
+            }
+        } else {
+            $courseusers = get_enrolled_users($context, '', $this->groupid, 'u.id, ' . get_all_user_name_fields(true, 'u'),
                 null, $limitfrom, $limitnum);
+        }
 
         $users = array();
         if (($this->showusers) || (count($courseusers) < COURSE_MAX_USERS_PER_DROPDOWN && empty($this->showusers))) {
@@ -475,6 +492,7 @@ class report_log_renderable implements renderable {
         $filter->action = $this->action;
         $filter->date = $this->date;
         $filter->orderby = $this->order;
+        $filter->groupmode = groups_get_course_groupmode($this->course);
 
         // If showing site_errors.
         if ('site_errors' === $this->modid) {
