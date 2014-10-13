@@ -407,6 +407,7 @@ class report_log_table_log extends table_sql {
         }
 
         // Getting all members of a group.
+        $context = context_course::instance($this->filterparams->courseid);
         if ($groupid and empty($this->filterparams->userid)) {
             if ($gusers = groups_get_members($groupid)) {
                 $gusers = array_keys($gusers);
@@ -417,6 +418,32 @@ class report_log_table_log extends table_sql {
         } else if (!empty($this->filterparams->userid)) {
             $joins[] = "userid = :userid";
             $params['userid'] = $this->filterparams->userid;
+        } else if ($groupid == 0 AND $this->filterparams->groupmode == SEPARATEGROUPS AND
+            !has_capability('moodle/site:accessallgroups', $context)) {
+            $count = 0;
+            global $USER;
+
+            // Get all users from USER's groups.
+            $usergroups = groups_get_all_groups($this->filterparams->courseid, $USER->id);
+            foreach ($usergroups as $usergroup) {
+                $count++;
+                if ($count == 1) {
+                    $courseusers = get_enrolled_users($context, '', $usergroup->id, 'u.id',
+                        null, '', '');
+                } else {
+                    $tempusers = get_enrolled_users($context, '', $usergroup->id, 'u.id',
+                        null, '', '');
+                    foreach ($tempusers as $tempuser) {
+                        array_push($courseusers, $tempuser);
+                    }
+                }
+            }
+
+            // Make them unique.
+            foreach ($courseusers as $courseuser) {
+                $allowedusers[$courseuser->id] = $courseuser->id;
+            }
+            $joins[] = 'userid IN (' . implode(',', $allowedusers) . ')';
         }
 
         if (!empty($this->filterparams->date)) {
